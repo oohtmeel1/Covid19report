@@ -1,0 +1,743 @@
+---
+title: "Covid19 Project"
+author: "Me"
+date: "2023-04-11"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+    fig_width: 6
+    fig_height: 4
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(dev = 'pdf')
+```
+
+
+
+## Abstract:
+
+
+The following report uses Covid-19 data from John Hopkins Github, and various metrics were explored. The way data was cleaned and parsed, organized, and what questions were to be answered was included in the final report.
+
+
+
+
+## Introduction:
+The Covid 19 Pandemic has had many effects on the world. And thanks to modern technology, since it began people have been tracking and trending this data.
+A great data set that is easily accessible would be one provided by John Hopkins university, which can be found at https://github.com/CSSEGISandData/COVID-19.
+The data set includes, dates of occurrence, geographical areas, locations, populations and other relevant information.
+And it poses many great questions. 
+The question that will be addressed today is going to be. Have are there now more per capita cases in Alabama or in New York city over time.
+Having a larger population overall, a reasonable hypothesis would be that the State of New York would have a higher amount of cases per thousand or million people than the State of Alabama.
+
+$$H_{0} = \text{New York has more cases per capita.}$$
+$$H_{a} = \text{Alabama has more cases per capita.} $$
+
+
+## Materials and methods
+::: columns
+
+
+::: column
+
+
+
+
+
+\begin{flushleft}
+
+The libraries used: | 
+dplyr  | 
+lubridate       | 
+tidyverse  |
+stringr|
+ggplot2|
+
+
+\end{flushleft}
+
+```{r, message = FALSE, include= FALSE ,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 100)
+
+```
+
+:::
+
+::: column
+
+The Raw File location is below for reference :
+
+``` {r message =FALSE, include= TRUE,warning=FALSE}
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+```
+
+Each file name is shown below, as the files are combined:
+```{r message =FALSE, include= TRUE,warning=FALSE}
+
+file_names <- c("time_series_covid19_confirmed_global.csv","time_series_covid19_deaths_global.csv","time_series_covid19_confirmed_US.csv","time_series_covid19_deaths_US.csv")
+library(tidyverse)
+urls <- str_c(url_in,file_names)
+
+```
+
+:::
+
+:::
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+global_cases<-read_csv(urls[1])
+global_deaths<-read_csv(urls[2])
+US_cases<-read_csv(urls[3])
+US_deaths<-read_csv(urls[4])
+US_1 <- US_cases[1:5,1:5]
+
+```
+
+
+
+
+When Each file is examined, there is a large amount of extra data, along with the data being not in the proper format to be worked with. For example, the dates are individual which makes it impossible to properly sort the data for the purposes of this report. It also makes the data set much larger than it needs to be. 
+
+``` {r message =FALSE, include= TRUE,warning=FALSE}
+
+
+library(knitr)
+kable(US_1)
+# A tiny snip of the data. Note the meaningless columns.
+```
+
+________________________________________________________________________________________________
+In order to better utilize the data. A form of data cleaning was performed. The built in ```Pivot_longer``` method was utilized to help put the data into a more useful format. All extra columns were filtered out. Leaving dates, locations, populations, cases and a few columns for future use. The raw code is below. 
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+global_cases <-global_cases %>%
+  pivot_longer( cols = -c("Province/State",
+                          "Country/Region", "Lat","Long"),
+                names_to ="date",
+                values_to ="cases")%>%
+  select(-c(Lat,Long))
+
+global_deaths <-global_deaths %>%
+  pivot_longer( cols = -c("Province/State",
+                          "Country/Region", "Lat","Long"),
+                names_to ="date",
+                values_to ="cases")%>%
+  select(-c(Lat,Long))
+
+
+global <- global_cases %>%
+  full_join(global_deaths) %>%
+  rename(Country_Region = 'Country/Region',
+         Province_State = 'Province/State') %>%
+  mutate(date = mdy(date))
+
+
+
+``` 
+
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+global %>% filter (cases> 28000000)
+
+```
+
+
+To further assist in data cleaning the ``` Lubridate``` library was also utilized, in order to change the date format to something R can use properly. As string variables take up much more space than numerical.
+
+```{r message =FALSE, include= TRUE,warning=FALSE}
+
+library(lubridate)
+US_cases <-US_cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),
+               names_to ="date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat,Long_))
+
+US_deaths <- US_deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to = "date",
+               values_to ="deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long_))
+
+US <- US_cases %>%
+  full_join(US_deaths)
+
+
+US_1 <- US[1:6,1:6]
+
+
+```
+
+\break
+________________________________________________________________________________________________
+A  more relevant slice of data is highlighted below.
+```{r, layout="l-body-outset"}
+
+library(knitr)
+kable(US_1)
+
+```
+
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+global <- global %>%
+  unite("Combined_Key",
+        c(Province_State, Country_Region),
+        sep = ",",
+        na.rm = TRUE,
+        remove = FALSE)
+
+
+```
+
+As a final step the data was grouped again, and filtered for when case counts were above 0. The deaths per million people metric was also calculated. And the formula for reference is below. Along with source code.
+________________________________________________________________________________________________
+$$ deaths.per.million = deaths*1000000/population$$
+________________________________________________________________________________________________
+
+
+
+``` {r message =FALSE, include= TRUE,warning=FALSE}
+
+US_by_state <- US %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000/ Population) %>%
+  select(Province_State, Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+US_totals <- US_by_state %>%
+  group_by(Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths),
+            Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths * 1000000/ Population) %>%
+  select(Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+
+
+```
+
+\newpage
+## Analyzing data using visualizations
+________________________________________________________________________________________________
+
+Then the number of cases and deaths VS time was plotted to provide a basic visualization.(plot1)
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+library(ggplot2)
+plot1<- US_totals %>%
+  filter(cases >0) %>%
+  ggplot(aes(x= date, y = cases))+
+  geom_line(aes(color ="cases"))+
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y= deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position ="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in US", y=NULL)
+plot(plot1)
+
+```
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+library(ggplot2)
+state <- "New York"
+
+plot2 <- US_by_state %>%
+  filter(Province_State == state ) %>%
+  filter(cases >0) %>%
+  ggplot(aes(x= date, y = cases))+
+  geom_line(aes(color ="cases"))+
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y= deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position ="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in New York", y=NULL)
+plot(plot2)
+
+```
+
+
+To continue  analysis of data. The cases were filtered by New York, followed by Alabama. And the same plots were rendered again using the filtered data. (plo2,plot3)
+
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+state <- "Alabama"
+
+plot3 <- US_by_state %>%
+  filter(Province_State == state ) %>%
+  filter(cases >0) %>%
+  ggplot(aes(x= date, y = cases))+
+  geom_line(aes(color ="cases"))+
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y= deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position ="bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in Alabama", y=NULL)
+plot(plot3)
+
+```
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+state <- "Alabama"
+state1 <- "New York"
+
+
+frame1 <- US_by_state %>%
+  filter(Province_State == state) %>%
+  filter(cases >0) 
+  
+frame1
+
+frame2 <- US_by_state %>%
+  filter(Province_State == state1) %>%
+  filter(cases >0) 
+frame2
+
+
+plot4 <-ggplot()+
+  geom_line(data= frame1, aes(x=date, y= cases, color = 'red'))+
+  geom_point(data= frame1, aes(x=date, y= cases), color = 'red')+
+  geom_line(data= frame2, aes(x=date, y= cases, color = 'blue')) +
+  geom_point(data= frame2, aes(x=date, y= cases), color = 'blue')+
+  scale_y_log10("Number of cases per million") +    
+  labs(title = "COVID19 cases in New York VS Covid in Alabama",
+       color = "Cases",y=NULL) +
+  scale_color_identity(name = "State Names",
+                          breaks = c( "red", "blue"),
+                          labels = c("Alabama", "New York"),
+                          guide = "legend") 
+
+  
+plot(plot4)
+
+
+
+plot5 <-ggplot()+
+  geom_line(data= frame1, aes(x=date, y= deaths, color = 'red'))+
+  geom_point(data= frame1, aes(x=date, y= deaths), color = 'red')+
+  geom_line(data= frame2, aes(x=date, y= deaths, color = 'blue')) +
+  geom_point(data= frame2, aes(x=date, y= deaths), color = 'blue')+
+  scale_y_log10("Number of cases per million") +    
+  labs(title = "COVID19 deaths in New York VS Covid in Alabama",
+       color = "Cases",y=NULL) +
+  scale_color_identity(name = "State Names",
+                          breaks = c( "red", "blue"),
+                          labels = c("Alabama", "New York"),
+                          guide = "legend") 
+
+  
+plot(plot5)
+
+
+
+
+
+```
+
+
+
+
+Then both sets of data were overlaid in the same space in order to preliminary view them.(plot4,plot5)
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+max(US_totals$date)
+max(US_totals$deaths)
+
+```
+
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+US_by_state <- US_by_state %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+
+US_totals <- US_totals %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+
+
+```
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+tail(US_totals %>% select(new_cases, new_deaths, everything()))
+
+
+```
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+library(ggplot2)
+plot7 <-ggplot()+
+  geom_line(data= frame1, aes(x=date, y= deaths_per_mill, color = 'red'))+
+  geom_point(data= frame1, aes(x=date, y= deaths_per_mill), color = 'red')+
+  geom_line(data= frame2, aes(x=date, y= deaths_per_mill, color = 'blue')) +
+  geom_point(data= frame2, aes(x=date, y= deaths_per_mill), color = 'blue')+
+  labs(title = "COVID19 deaths in New York VS Covid in Alabama",
+       color = "Cases",y=NULL) +
+  ylab("Number of deaths")+
+  scale_color_identity(name = "State Names",
+                          breaks = c( "red", "blue"),
+                          labels = c("Alabama", "New York"),
+                          guide = "legend") 
+
+options(scipen = 100)
+frame1$logdeathspermil = log10(frame1$deaths_per_mill)
+frame1$logdeaths = log10(frame1$deaths)
+frame1
+frame2$logdeathspermil = log10(frame2$deaths_per_mill)
+frame2$logdeaths = log10(frame2$deaths)
+frame2
+
+
+library(ggplot2)
+plot8 <-ggplot()+
+  geom_line(data= frame1, aes(x=date, y= logdeathspermil, color = 'red'))+
+  geom_point(data= frame1, aes(x=date, y= logdeathspermil), color = 'red')+
+  geom_line(data= frame2, aes(x=date, y= logdeathspermil, color = 'blue')) +
+  geom_point(data= frame2, aes(x=date, y= logdeathspermil), color = 'blue')+
+  labs(title = "COVID19 deaths in New York VS Covid in Alabama",
+       color = "Cases",y=NULL) +
+  ylab("Number of deaths")+
+  scale_color_identity(name = "State Names",
+                          breaks = c( "red", "blue"),
+                          labels = c("Alabama", "New York"),
+                          guide = "legend") 
+
+
+plot(plot8)
+
+
+Alabamaframe1 <-frame1[-c(1:14),]
+Alabamaframe1
+modlframe1 <- lm(deaths_per_mill ~ logdeaths, data = Alabamaframe1)
+modlframe1
+modlframe3 <- lm(deaths_per_mill ~0+ logdeaths, data = Alabamaframe1)
+modlframe3
+
+
+Alabama_w_predict <- Alabamaframe1 %>% mutate(pred = predict(modlframe1))
+Alabama_w_predict
+Alabama_w_predict1 <- Alabamaframe1 %>% mutate(pred = predict(modlframe3))
+Alabama_w_predict1
+
+
+NewYorkframe1 <-frame2[-c(1:14),]
+modlframe2 <- lm(deaths_per_mill ~ logdeaths, data = NewYorkframe1)
+modlframe2
+modlframe4 <- lm(deaths_per_mill ~0 + logdeaths, data = NewYorkframe1)
+modlframe4
+
+
+New_York_w_predict <- NewYorkframe1 %>% mutate(pred = predict(modlframe4))
+New_York_w_predict
+New_York_w_predict1 <- NewYorkframe1 %>% mutate(pred = predict(modlframe4))
+New_York_w_predict1
+
+library(ggplot2)
+plot9 <-ggplot()+
+  geom_line(data= Alabama_w_predict, aes(x=date, y= pred, color = 'red'))+
+  geom_point(data= Alabama_w_predict, aes(x=date, y= pred), color = 'red')+
+  geom_line(data= New_York_w_predict, aes(x=date, y= pred, color = 'blue')) +
+  geom_point(data= New_York_w_predict, aes(x=date, y= pred), color = 'blue')+
+  labs(title = "COVID19 deaths in New York VS Covid in Alabama",
+       color = "Cases",y=NULL) +
+  ylab("Number of deaths")+
+  scale_color_identity(name = "State Names",
+                          breaks = c( "red", "blue"),
+                          labels = c("Alabama", "New York"),
+                          guide = "legend") 
+
+
+plot(plot9)
+
+
+
+library(ggplot2)
+plot10 <- ggplot()+
+geom_point(data= Alabama_w_predict, aes(x=deaths_per_mill, y= pred), color = 'red')+
+geom_point(data= New_York_w_predict, aes(x=deaths_per_mill, y= pred), color = 'blue') +
+    labs(title = "COVID19 deaths in New York VS Covid in Alabama",
+       color = "Cases",y=NULL) +
+  ylab("Number of deaths")+
+  scale_color_identity(name = "State Names",
+                          breaks = c( "red", "blue"),
+                          labels = c("Alabama", "New York"),
+                          guide = "legend") 
+plot(plot10)
+
+library(ggplot2)
+plot11 <- ggplot()+
+geom_line(data= Alabama_w_predict1, aes(x=deaths_per_mill, y= pred), color = 'red')+
+geom_line(data= New_York_w_predict1, aes(x=deaths_per_mill, y= pred), color = 'blue') +
+    labs(title = "COVID19 deaths in New York VS Covid in Alabama",
+       color = "Cases",y=NULL) +
+  ylab("Number of deaths")+
+  scale_color_identity(name = "State Names",
+                          breaks = c( "red", "blue"),
+                          labels = c("Alabama", "New York"),
+                          guide = "legend") 
+plot(plot11)
+
+```
+
+
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+
+
+US_state_totals <- US_by_state %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths), cases = max(cases),
+            population = max(Population),
+cases_per_thou = 1000 *cases / population,
+deaths_per_thou = 1000 * deaths / population) %>%
+  filter(cases >0, population >0)
+
+
+US_state_totals %>%
+  slice_min(deaths_per_thou, n = 10) %>%
+  select(deaths_per_thou, cases_per_thou, everything())
+
+US_state_totals %>%
+  slice_max(deaths_per_thou, n = 10) %>%
+  select(deaths_per_thou, cases_per_thou, everything())
+
+```
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+mod <- lm(deaths_per_thou ~ cases_per_thou, data = US_state_totals)
+
+US_state_totals
+
+```
+
+
+
+``` {r message =FALSE, include= FALSE,warning=FALSE}
+
+US_state_totals %>% slice_max(cases_per_thou)
+
+x_grid <- seq(1,151)
+new_df <- tibble(cases_per_thou = x_grid)
+US_state_totals %>% mutate(pred = predict(mod))
+
+US_tot_w_pred <- US_state_totals %>% mutate(pred = predict(mod))
+US_tot_w_pred
+
+library(ggplot2)
+predic1 <- US_tot_w_pred %>% ggplot() +
+  geom_point(aes(x= cases_per_thou, y = deaths_per_thou), color = "blue") +
+  geom_point(aes(x= cases_per_thou, y = pred), color = "red")
+  
+```
+
+
+Then a plot was shown to show deaths per 1000 individuals VS dates in each state (plot7)
+And that same data was plotted using a log transformation.
+
+And a linear model was created using cases per thousand and deaths per thousand. 
+It is very apparent that there is indeed a slight linear trend upward. Which also makes sense on just a basic level. In general, all things being equal, more cases would generally equal more deaths. (predic1)
+
+________________________________________________________________________________________________
+
+
+
+
+\newpage
+
+## Results/Conclusion and discussion:
+________________________________________________________________________________________________
+
+As of 2023 the per ca-pita deaths of individuals was indeed higher in Alabama than in New York. And thus the decision was reached to reject the null hypothesis.
+
+
+From the simple raw numbers a very straightforward conclusion was reached. 
+
+What was interesting and of note would be the cases and deaths log plots for each state. 
+When looking at curves for data such as these (Please refer to plot 2 and plot 3) a squarish shape can mean the data reached saturation so to speak. To give an example (please humor me here) when measuring activity levels in an enzymatic reaction, if you have too much substrate often times the log plot creates this same squarish shape. This is because instead of proportionally reacting, the enzyme quickly uses up everything and saturates itself. 
+Thank you for humoring me. 
+
+But what this tells me is there were either not enough tests or not enough labs to do the testing that was needed.
+While the testing log plot for Alabama looks more rounded, so not as saturated. Which may mean not enough testing. The deaths plot is incredibly depressed.
+So that means to me. Deaths were maybe under-reported, just a smidge. How can this conclusion be drawn? Well because of the low shape of the curve. 
+If there is not enough substrate then the reaction will proceed only very slowly. 
+And when the cases and deaths flattened out for both states, there was still a large gap between the two log curves and the Alabama curve still had some curve to go.(please see plot 4 and plot 5 on page 6) 
+And that is why the deaths in Alabama eventually eclipse Deaths in New York. (plot7) Because the New York Cases flatten completely. But the cases in Alabama do not. So there is still growth and increase. And eventually Alabama catches up and eclipses New York in the number of deaths. 
+And incredibly dark tortoise and hare story if we may. This is easily proven when the log of data used for plot 7 is plotted. (plot 8) It helps to highlight and better illustrate the rate of change. 
+When the data for both states was log transformed using deaths per million and total deaths, and this data was used to create a prediction, using a linear model, an interesting effect was noted. The early estimates for deaths for both states was negative. (plot 9) It is not possible to have negative deaths so the data needed to be fit to 0.The change did not make the model any more accurate.(plot11) In fact the prediction actually turned out worse than the actual results. (plot 12) 
+But the trend still stands, with New York state having lower per ca-pita death due to Covid, VS Alabama. Plot 12, which is a table, shows the numerical outputs of each prediction. And the predictions themselves still follow the same trend.
+```{r, layout="l-body-outset",echo=FALSE}
+#plot 12
+library(knitr)
+library(dplyr)
+
+
+
+
+library(dplyr)
+newtable <-Alabama_w_predict[1075:1080,6]
+
+newtable<-newtable %>% 
+    rename("Actual deaths AL" = "deaths_per_mill")
+
+newtable1 <-Alabama_w_predict[1075:1080,10]
+
+
+newtable1<-newtable1 %>% 
+    rename("predictied deaths AL" = "pred")
+
+newtable2 <-Alabama_w_predict1[1075:1080,10]
+
+
+newtable2<-newtable2 %>% 
+    rename("predictied deaths AL 0 adjust" = "pred")
+
+
+newtable3 <-New_York_w_predict[1075:1080,6]
+
+newtable3<-newtable3 %>% 
+    rename("Actual deaths NY" = "deaths_per_mill")
+
+newtable4<-New_York_w_predict[1075:1080,10]
+
+
+newtable4<-newtable4 %>% 
+    rename("predictied deaths NY" = "pred")
+
+newtable5 <-New_York_w_predict1[1075:1080,10]
+
+
+newtable5<-newtable5 %>% 
+    rename("predictied deaths NY 0 adjust" = "pred")
+
+plot12<-cbind(newtable,newtable1,newtable2,newtable3,newtable4,newtable5)
+
+
+
+```
+
+
+We as data scientists simply report what we see. Hopefully the data that is carefully gathered and curated by those in the John Hopkins repository gets put to good use.
+As a side note: A possible source of bias would have been the fact that cases were only tracked as a sum. Instead of daily cases as a number. Something like that would make it very easy to over estimate the severity of cases or the impact of Covid on an area. Or under estimate a large change in numbers. Or to see an area negatively, maybe not moving there or moving out.
+Another source of bias would be the linear model that was created showing a smaller estimation of current cases than was truly the case. If data like this is used to allocate resources, many places would not receive the funding they need or would not themselves devote enough resources.
+
+\newpage
+## Figures
+
+``` {r message =FALSE, include= TRUE,warning=FALSE, fig.height = 4, fig.width = 5}
+plot(plot1)
+
+```
+``` {r message =FALSE, include= TRUE,warning=FALSE, fig.height = 3, fig.width = 4}
+
+plot(plot2)
+```
+
+\newpage
+``` {r message =FALSE, include= TRUE,warning=FALSE, fig.height = 3, fig.width = 4}
+plot(plot3)
+
+```
+
+``` {r message =FALSE, include= TRUE,warning=FALSE, fig.height = 3, fig.width = 4}
+plot(plot4)
+```
+
+``` {r message =FALSE, include= TRUE,warning=FALSE, fig.height = 3, fig.width = 4}
+plot(plot5)
+
+```
+
+\newpage
+``` {r message =FALSE, include= TRUE,warning=FALSE, fig.height = 3, fig.width = 4}
+
+plot(plot7)
+
+plot(plot8)
+```
+
+
+\newpage
+
+
+
+``` {r message =FALSE, include= TRUE,warning=FALSE, fig.height = 3, fig.width = 4}
+
+library(knitr)
+library(dplyr)
+
+plot(plot9)
+
+
+kable(plot12)
+
+```
+
+
+\break
+
+
+``` {r}
+
+plot(predic1)
+mod
+
+```
+
+
+
+
+
+
+
